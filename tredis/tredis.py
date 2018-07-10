@@ -54,7 +54,8 @@ class Feeder(multiprocessing.Process):
             next_task(client=self.client)
             self.task_queue.task_done()
             feed += 1
-            if feed > 100:
+            if feed > 5000:
+                print('${p} updating records. My total: {t}'.format(p=self.name, t=(self.result[self.name]+feed)))
                 self.result['total'] += feed
                 self.result[self.name] += feed
                 feed = 0
@@ -79,7 +80,8 @@ class IBANGenerator(multiprocessing.Process):
             key, value = self.generate_data()
             self.task_queue.put(RedisInsert(key, value))
             generated += 1
-            if generated > 100:
+            if generated > 10000:
+                print('{p} generated until now: {n} records'.format(p=self.name, n=(self.result['generated']+generated)))
                 self.result['generated'] += generated
                 generated = 0
         print('Exiting generator')
@@ -109,6 +111,8 @@ class RedisInsert(object):
 
 
 def main():
+    if os.path.exists('/tmp/stopredis'):
+        os.unlink('/tmp/stopredis')
     manager = multiprocessing.Manager()
     result = manager.dict()
     result['generator_enabled'] = True
@@ -144,7 +148,11 @@ def main():
     result['generator_enabled'] = False
     for _ in feeders:
         queue_data.put(None)
+    print('WAITING FOR FEEDER PROCESSES')
+    for f in feeders:
+        f.terminate()
     queue_data.join()
+    print('JOB DONE!')
     print('RESULTS\n{}'.format(result))
 
 
