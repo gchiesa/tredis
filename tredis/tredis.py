@@ -18,8 +18,8 @@ __maintainer__ = "Giuseppe Chiesa"
 __email__ = "mail@giuseppechiesa.it"
 __status__ = "PerpetualBeta"
 
-DEFAULT_REDIS_HOST = os.environ.get('REDIS_HOST', None) or '127.0.0.1'
-DEFAULT_REDIS_PORT = os.environ.get('REDIS_PORT', None) or '6379'
+DEFAULT_REDIS_HOST = '127.0.0.1'
+DEFAULT_REDIS_PORT = '6379'
 WORKERS = multiprocessing.cpu_count() * 2
 # WORKERS = 1
 
@@ -118,8 +118,8 @@ def main():
     result['generator_enabled'] = True
     result['total'] = 0
     config = manager.dict()
-    config['host'] = DEFAULT_REDIS_HOST
-    config['port'] = DEFAULT_REDIS_PORT
+    config['host'] = os.environ.get('REDIS_HOST', None) or DEFAULT_REDIS_HOST
+    config['port'] = os.environ.get('REDIS_PORT', None) or DEFAULT_REDIS_PORT
     queue_data = multiprocessing.JoinableQueue()
     print('Configuration: {}'.format(config))
     print('Allocating feeders')
@@ -140,18 +140,19 @@ def main():
             break
         if result['total'] == 0:
             continue
-        if client.get(IBANGenerator.CANARY[0]) is None:
+        if result['total'] % 100000 == 0 and client.get(IBANGenerator.CANARY[0]) is None:
             break
         if result['total'] % 10000 == 0:
             print('Generation in progress [{}]'.format(result['total']))
     # canary lost poisoning pill
     result['generator_enabled'] = False
+    queue_data.join()
     for _ in feeders:
         queue_data.put(None)
     print('WAITING FOR FEEDER PROCESSES')
-    for f in feeders:
-        f.terminate()
     queue_data.join()
+    for p in feeders:
+        p.join()
     print('JOB DONE!')
     print('RESULTS\n{}'.format(result))
 
