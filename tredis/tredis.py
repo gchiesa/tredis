@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 import multiprocessing
 import os
-import pprint
 import random
 from time import sleep
+
 import redis
-import strgen
+import rediscluster
 from schwifty import IBAN
 
 from .bics import DUTCH_BICS
@@ -18,8 +18,8 @@ __maintainer__ = "Giuseppe Chiesa"
 __email__ = "mail@giuseppechiesa.it"
 __status__ = "PerpetualBeta"
 
-DEFAULT_REDIS_HOST = '127.0.0.1'
-DEFAULT_REDIS_PORT = '6379'
+DEFAULT_REDIS_HOST = os.environ.get('REDIS_HOST', None) or '127.0.0.1'
+DEFAULT_REDIS_PORT = os.environ.get('REDIS_PORT', None) or '6379'
 WORKERS = multiprocessing.cpu_count() * 2
 # WORKERS = 1
 
@@ -37,10 +37,13 @@ class Feeder(multiprocessing.Process):
         self.config = config
         self.result = result
         self.result[self.name] = 0
-        self.client = redis.StrictRedis(host=config['host'], port=config['port'])
+        # self.client = redis.StrictRedis(host=config['host'], port=config['port'])
+        startup_nodes = [{'host': self.config['host'], 'port': self.config['port']}]
+        self.client = rediscluster.StrictRedisCluster(startup_nodes=startup_nodes, decode_responses=True,
+                                                      readonly_mode=False, skip_full_coverage_check=True)
 
     def run(self):
-        feeded = 0
+        feed = 0
         while True:
             next_task = self.task_queue.get()
             if next_task is None:
@@ -50,11 +53,11 @@ class Feeder(multiprocessing.Process):
                 break
             next_task(client=self.client)
             self.task_queue.task_done()
-            feeded += 1
-            if feeded > 100:
-                self.result['total'] += feeded
-                self.result[self.name] += feeded
-                feeded = 0
+            feed += 1
+            if feed > 100:
+                self.result['total'] += feed
+                self.result[self.name] += feed
+                feed = 0
 
 
 class IBANGenerator(multiprocessing.Process):
@@ -114,6 +117,7 @@ def main():
     config['host'] = DEFAULT_REDIS_HOST
     config['port'] = DEFAULT_REDIS_PORT
     queue_data = multiprocessing.JoinableQueue()
+    print('Configuration: {}'.format(config))
     print('Allocating feeders')
     feeders = [Feeder(queue_data, config, result) for _ in xrange(WORKERS)]
     for feeder in feeders:
@@ -122,7 +126,10 @@ def main():
     generator = IBANGenerator(queue_data, result)
     generator.start()
 
-    client = redis.StrictRedis(config['host'], config['port'])
+    startup_nodes = [{'host': config['host'], 'port': config['port']}]
+    client = rediscluster.StrictRedisCluster(startup_nodes=startup_nodes, decode_responses=True,
+                                             readonly_mode=False, skip_full_coverage_check=True)
+
     while True:
         sleep(1)
         if os.path.exists('/tmp/stopredis'):

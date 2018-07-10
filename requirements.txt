@@ -2,3 +2,4 @@ redis
 schwifty
 StringGenerator
 setproctitle
+redis-py-cluster
